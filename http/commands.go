@@ -24,6 +24,8 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
+const maxCommandMessageSize = 64 << 10
+
 var (
 	cmdNotAllowed = []byte("Command not allowed.")
 )
@@ -44,12 +46,24 @@ var commandsHandler = withUser(func(w http.ResponseWriter, r *http.Request, d *d
 		return http.StatusInternalServerError, err
 	}
 	defer conn.Close()
+	conn.SetReadLimit(maxCommandMessageSize)
+
+	// Reject disabled commands before reading untrusted client data.
+	if !d.server.EnableExec || !d.user.Perm.Execute {
+		if err := conn.WriteMessage(websocket.TextMessage, cmdNotAllowed); err != nil {
+			wsErr(conn, r, http.StatusInternalServerError, err)
+		}
+		return 0, nil
+	}
 
 	var raw string
 
 	for {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
+			if err == websocket.ErrReadLimit {
+				return 0, nil
+			}
 			wsErr(conn, r, http.StatusInternalServerError, err)
 			return 0, nil
 		}
@@ -58,15 +72,6 @@ var commandsHandler = withUser(func(w http.ResponseWriter, r *http.Request, d *d
 		if raw != "" {
 			break
 		}
-	}
-
-	// Fail fast
-	if !d.server.EnableExec || !d.user.Perm.Execute {
-		if err := conn.WriteMessage(websocket.TextMessage, cmdNotAllowed); err != nil {
-			wsErr(conn, r, http.StatusInternalServerError, err)
-		}
-
-		return 0, nil
 	}
 
 	command, name, err := runner.ParseCommand(d.settings, raw)

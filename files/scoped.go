@@ -60,6 +60,74 @@ func BasePath(fs afero.Fs) *afero.BasePathFs {
 	return nil
 }
 
+// ResolvedPath returns a path relative to fs's base after resolving symlinks.
+// For a path that does not exist yet, it resolves the nearest existing
+// ancestor and appends the remaining components. Filesystems without an OS
+// base path retain the cleaned virtual path.
+func ResolvedPath(filesystem afero.Fs, name string) (string, error) {
+	base := BasePath(filesystem)
+	if base == nil {
+		return filepath.ToSlash(filepath.Clean("/" + name)), nil
+	}
+	root, resolved, err := resolveBasePath(base, name)
+	if err != nil {
+		return "", err
+	}
+	relative, err := filepath.Rel(root, resolved)
+	if err != nil {
+		return "", err
+	}
+	if relative == "." {
+		return "/", nil
+	}
+	return "/" + filepath.ToSlash(relative), nil
+}
+
+func resolveBasePath(base *afero.BasePathFs, name string) (string, string, error) {
+	root, err := filepath.EvalSymlinks(afero.FullBaseFsPath(base, "/"))
+	if err != nil {
+		return "", "", err
+	}
+	target := afero.FullBaseFsPath(base, name)
+	resolved, err := filepath.EvalSymlinks(target)
+	var missing []string
+	for hops := 0; errors.Is(err, fs.ErrNotExist); {
+		if info, statErr := os.Lstat(target); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			hops++
+			if hops > maxSymlinkHops {
+				return "", "", os.ErrPermission
+			}
+			dest, readErr := os.Readlink(target)
+			if readErr != nil {
+				return "", "", readErr
+			}
+			if !filepath.IsAbs(dest) {
+				parent, parentErr := filepath.EvalSymlinks(filepath.Dir(target))
+				if parentErr != nil {
+					return "", "", parentErr
+				}
+				dest = filepath.Join(parent, dest)
+			}
+			target = filepath.Clean(dest)
+		} else {
+			parent := filepath.Dir(target)
+			if parent == target {
+				break
+			}
+			missing = append(missing, filepath.Base(target))
+			target = parent
+		}
+		resolved, err = filepath.EvalSymlinks(target)
+	}
+	if err != nil {
+		return "", "", err
+	}
+	for i := len(missing) - 1; i >= 0; i-- {
+		resolved = filepath.Join(resolved, missing[i])
+	}
+	return root, resolved, nil
+}
+
 // BasePathFs returns the underlying *afero.BasePathFs.
 func (s *ScopedFs) BasePathFs() *afero.BasePathFs { return s.base }
 
@@ -94,65 +162,14 @@ func (s *ScopedFs) guard(name string) error {
 // there, so a write cannot dereference the link to create a file outside the
 // scope.
 func (s *ScopedFs) within(p string) (bool, error) {
-	root, err := filepath.EvalSymlinks(afero.FullBaseFsPath(s.base, "/"))
+	root, resolved, err := resolveBasePath(s.base, p)
 	if err != nil {
 		return false, err
 	}
-
-	target := afero.FullBaseFsPath(s.base, p)
-	resolved, err := filepath.EvalSymlinks(target)
-	// When target does not resolve, work out where the operation would actually
-	// land. A non-existent regular path resolves to the file that would be
-	// created inside its containing directory, so walk up to the nearest
-	// existing ancestor and validate that. But when target itself is a dangling
-	// symlink, follow it one level instead: validating its lexical parent would
-	// wrongly accept a link pointing outside the scope, letting a write follow
-	// the link and create the file out of bounds.
-	for hops := 0; errors.Is(err, fs.ErrNotExist); {
-		if fi, lerr := os.Lstat(target); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
-			hops++
-			if hops > maxSymlinkHops {
-				return false, os.ErrPermission
-			}
-			dest, rerr := os.Readlink(target)
-			if rerr != nil {
-				return false, rerr
-			}
-			if !filepath.IsAbs(dest) {
-				// Resolve the link relative to the directory that really contains
-				// it, not its lexical parent: a symlinked ancestor could otherwise
-				// shift the computed target back into scope while the real write
-				// lands outside it. The parent is guaranteed to resolve here
-				// because os.Lstat above already traversed it.
-				base, berr := filepath.EvalSymlinks(filepath.Dir(target))
-				if berr != nil {
-					return false, berr
-				}
-				dest = filepath.Join(base, dest)
-			}
-			target = filepath.Clean(dest)
-		} else {
-			parent := filepath.Dir(target)
-			if parent == target {
-				break
-			}
-			target = parent
-		}
-		resolved, err = filepath.EvalSymlinks(target)
-	}
-	if err != nil {
-		return false, err
-	}
-
-	// Compare against root with a trailing separator so a sibling like
-	// "/srvother" is not treated as being inside "/srv". When root is itself the
-	// filesystem boundary (e.g. "/"), it already ends in a separator, so avoid
-	// producing "//" — which no path would match — and accept any path under it.
 	prefix := root
 	if !strings.HasSuffix(prefix, string(filepath.Separator)) {
 		prefix += string(filepath.Separator)
 	}
-
 	return resolved == root || strings.HasPrefix(resolved, prefix), nil
 }
 

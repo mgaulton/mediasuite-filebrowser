@@ -14,6 +14,10 @@ import (
 
 var srtLineBreakTag = regexp.MustCompile(`(?i)<br(?:\s+[^>]*)?\s*/?>`)
 
+const maxSubtitleBytes = 10 << 20
+
+var subtitleConversionSlots = make(chan struct{}, 2)
+
 var subtitleHandler = withUser(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
 	if !d.user.Perm.Download {
 		return http.StatusAccepted, nil
@@ -43,23 +47,49 @@ func subtitleFileHandler(w http.ResponseWriter, r *http.Request, file *files.Fil
 	if !files.IsSupportedSubtitle(file.Name) {
 		return http.StatusBadRequest, nil
 	}
-
+	if strings.HasSuffix(strings.ToLower(file.Name), ".vtt") {
+		fd, err := file.Fs.Open(file.Path)
+		if err != nil {
+			return http.StatusInternalServerError, err
+		}
+		defer fd.Close()
+		setContentDisposition(w, r, file)
+		w.Header().Add("Content-Security-Policy", `script-src 'none';`)
+		w.Header().Set("Cache-Control", "private")
+		w.Header().Set("Content-Type", "text/vtt")
+		http.ServeContent(w, r, file.Name, file.ModTime, fd)
+		return 0, nil
+	}
+	if file.Size > maxSubtitleBytes {
+		return http.StatusRequestEntityTooLarge, nil
+	}
+	select {
+	case subtitleConversionSlots <- struct{}{}:
+		defer func() { <-subtitleConversionSlots }()
+	default:
+		return http.StatusServiceUnavailable, nil
+	}
 	fd, err := file.Fs.Open(file.Path)
 	if err != nil {
 		return http.StatusInternalServerError, err
 	}
 	defer fd.Close()
 
+	// Bound memory use even if the file grows after its initial stat.
+	content, readErr := io.ReadAll(io.LimitReader(fd, maxSubtitleBytes+1))
+	if readErr != nil {
+		return http.StatusInternalServerError, readErr
+	}
+	if int64(len(content)) > maxSubtitleBytes {
+		return http.StatusRequestEntityTooLarge, nil
+	}
+
 	// load subtitle for conversion to vtt
 	var sub *astisub.Subtitles
 	if strings.HasSuffix(file.Name, ".srt") {
-		content, readErr := io.ReadAll(fd)
-		if readErr != nil {
-			return http.StatusInternalServerError, readErr
-		}
 		sub, err = astisub.ReadFromSRT(bytes.NewReader(normalizeSRTLineBreaks(content)))
 	} else if strings.HasSuffix(file.Name, ".ass") || strings.HasSuffix(file.Name, ".ssa") {
-		sub, err = astisub.ReadFromSSA(fd)
+		sub, err = astisub.ReadFromSSA(bytes.NewReader(content))
 	}
 	if err != nil {
 		return http.StatusInternalServerError, err

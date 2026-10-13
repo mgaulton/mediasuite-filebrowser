@@ -153,6 +153,10 @@ func resourcePostHandler(fileCache FileCache) handleFunc {
 			Checker:    d,
 		})
 		if err == nil {
+			if file.IsDir {
+				return http.StatusBadRequest, nil
+			}
+
 			if r.URL.Query().Get("override") != "true" {
 				return http.StatusConflict, nil
 			}
@@ -180,7 +184,9 @@ func resourcePostHandler(fileCache FileCache) handleFunc {
 		}, "upload", r.URL.Path, "", d.user)
 
 		if err != nil {
-			_ = d.user.Fs.RemoveAll(r.URL.Path)
+			// Failed-upload cleanup must never recursively remove the target.
+			// The target may be a directory after a concurrent filesystem change.
+			_ = d.user.Fs.Remove(r.URL.Path)
 		}
 
 		return errToStatus(err), err

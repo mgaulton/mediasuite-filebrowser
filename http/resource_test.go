@@ -223,6 +223,53 @@ func TestResourcePostCleanupDoesNotDeleteThroughSymlink(t *testing.T) {
 	}
 }
 
+func TestResourcePostRejectsDirectoryOverwriteWithoutDeletingContents(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "existing")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(target, "keep.txt")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	key := []byte("test-signing-key")
+	// Delete permission is deliberately absent; failed uploads must not turn
+	// that into recursive deletion of an existing directory.
+	perm := users.Permissions{Create: true, Modify: true}
+	st := scopedUserStorage(t, root, perm, key)
+	req, _ := http.NewRequest(http.MethodPost, "/existing?override=true", strings.NewReader("x"))
+	req.Header.Set("X-Auth", signToken(t, perm, key))
+	rec := httptest.NewRecorder()
+	handle(resourcePostHandler(diskcache.NewNoOp()), "", st, &settings.Server{}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected directory upload to be rejected with 400, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	if contents, err := os.ReadFile(sentinel); err != nil || string(contents) != "keep" {
+		t.Fatalf("existing directory contents changed: contents=%q err=%v", contents, err)
+	}
+}
+
+func TestResourcePostWritesNewFile(t *testing.T) {
+	root := t.TempDir()
+	key := []byte("test-signing-key")
+	perm := users.Permissions{Create: true}
+	st := scopedUserStorage(t, root, perm, key)
+	req := httptest.NewRequest(http.MethodPost, "/new.txt", strings.NewReader("valid upload"))
+	req.Header.Set("X-Auth", signToken(t, perm, key))
+	rec := httptest.NewRecorder()
+	handle(resourcePostHandler(diskcache.NewNoOp()), "", st, &settings.Server{}).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /new.txt = %d, want 200; body=%q", rec.Code, rec.Body.String())
+	}
+	contents, err := os.ReadFile(filepath.Join(root, "new.txt"))
+	if err != nil || string(contents) != "valid upload" {
+		t.Fatalf("uploaded file contents = %q, err=%v", contents, err)
+	}
+}
+
 func TestResourcePostRunsUploadHooksForDirectories(t *testing.T) {
 	root := t.TempDir()
 	userScope := filepath.Join(root, "user")

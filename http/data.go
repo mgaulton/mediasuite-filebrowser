@@ -8,6 +8,7 @@ import (
 
 	"github.com/tomasen/realip"
 
+	"github.com/filebrowser/filebrowser/v2/files"
 	"github.com/filebrowser/filebrowser/v2/rules"
 	"github.com/filebrowser/filebrowser/v2/runner"
 	"github.com/filebrowser/filebrowser/v2/settings"
@@ -35,19 +36,46 @@ type data struct {
 
 // Check implements rules.Checker.
 func (d *data) Check(path string) bool {
-	if d.user.HideDotfiles && rules.MatchHidden(d.rulePath(path)) {
+	if !d.user.HideDotfiles && len(d.settings.Rules) == 0 && len(d.user.Rules) == 0 {
+		return true
+	}
+
+	requestedPath := d.rulePath(path)
+	if d.user.HideDotfiles && rules.MatchHidden(requestedPath) {
+		return false
+	}
+	if !d.CheckRules(path) {
 		return false
 	}
 
-	return d.CheckRules(path)
+	resolvedPath, err := files.ResolvedPath(d.user.Fs, path)
+	if err != nil {
+		return false
+	}
+	resolvedRulePath := d.rulePath(resolvedPath)
+	if d.user.HideDotfiles && rules.MatchHidden(resolvedRulePath) {
+		return false
+	}
+	return d.CheckRules(resolvedPath)
 }
 
 // CheckRules reports whether the global and user rules allow path. Unlike
 // Check, it ignores HideDotfiles: hiding dotfiles is a display preference, so
 // it must not stop a user from operating on a tree that contains one.
 func (d *data) CheckRules(path string) bool {
+	resolvedPath, err := files.ResolvedPath(d.user.Fs, path)
+	if err != nil {
+		return false
+	}
 	path = d.rulePath(path)
+	resolvedPath = d.rulePath(resolvedPath)
+	if resolvedPath != path && !d.checkRulePath(resolvedPath) {
+		return false
+	}
+	return d.checkRulePath(path)
+}
 
+func (d *data) checkRulePath(path string) bool {
 	allow := true
 	for _, rule := range d.settings.Rules {
 		if rule.Matches(path, d.server.CaseInsensitiveFs) {

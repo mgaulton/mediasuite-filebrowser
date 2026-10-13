@@ -30,6 +30,7 @@ const props = withDefaults(defineProps<IProps>(), {
   classList: () => [],
   zoomStep: () => 0.25,
 });
+const emit = defineEmits(["navigate"]);
 
 const scale = ref<number>(1);
 const lastX = ref<number | null>(null);
@@ -40,6 +41,7 @@ const lastTouchDistance = ref<number | null>(0);
 const moveDisabled = ref<boolean>(false);
 const disabledTimer = ref<number | null>(null);
 const imageLoaded = ref<boolean>(false);
+const swipeStart = ref<{ x: number; y: number } | null>(null);
 const position = ref<{
   center: { x: number; y: number };
   relative: { x: number; y: number };
@@ -200,6 +202,10 @@ const touchStart = (event: TouchEvent) => {
   lastX.value = null;
   lastY.value = null;
   lastTouchDistance.value = null;
+  swipeStart.value =
+    event.targetTouches.length === 1
+      ? { x: event.targetTouches[0].pageX, y: event.targetTouches[0].pageY }
+      : null;
   if (event.targetTouches.length < 2) {
     setTimeout(() => {
       touches.value = 0;
@@ -232,6 +238,20 @@ const zoomAuto = (event: Event) => {
 
 const touchMove = (event: TouchEvent) => {
   event.preventDefault();
+  if (
+    event.targetTouches.length === 1 &&
+    scale.value <= 1.01 &&
+    swipeStart.value
+  ) {
+    const touch = event.targetTouches[0];
+    const dx = touch.pageX - swipeStart.value.x;
+    const dy = touch.pageY - swipeStart.value.y;
+    if (Math.abs(dx) >= 56 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+      emit("navigate", dx < 0 ? "next" : "previous");
+      swipeStart.value = null;
+    }
+    return;
+  }
   if (lastX.value === null) {
     lastX.value = event.targetTouches[0].pageX;
     lastY.value = event.targetTouches[0].pageY;
@@ -314,10 +334,28 @@ const pxStringToNumber = (style: string) => {
   margin: auto;
   overflow: hidden;
   position: relative;
+  width: min(92vw, 1200px);
+  height: min(82vh, 900px);
+  height: min(82dvh, 900px);
 }
 
 .image-ex-img {
   position: absolute;
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+@media (max-width: 700px) {
+  .image-ex-container {
+    width: 94vw;
+    height: calc(100vh - 96px);
+    height: calc(100dvh - 96px);
+    max-height: 84vh;
+  }
 }
 
 .image-ex-img-center {

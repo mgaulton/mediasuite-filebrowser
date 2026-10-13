@@ -73,7 +73,10 @@
       </div>
     </div>
     <template v-else>
-      <div class="preview">
+      <div
+        class="preview"
+        :class="{ 'preview--image': fileStore.req?.type === 'image' }"
+      >
         <div v-if="isEpub" class="epub-reader">
           <vue-reader
             :location="location"
@@ -107,6 +110,7 @@
         <ExtendedImage
           v-else-if="fileStore.req?.type == 'image'"
           :src="previewUrl"
+          @navigate="navigateImage"
         />
         <audio
           v-else-if="fileStore.req?.type == 'audio'"
@@ -157,7 +161,7 @@
       @click="prev"
       @mouseover="hoverNav = true"
       @mouseleave="hoverNav = false"
-      :class="{ hidden: !hasPrevious || !showNav }"
+      :class="{ hidden: !showNav, unavailable: !hasPrevious }"
       :aria-label="$t('buttons.previous')"
       :title="$t('buttons.previous')"
     >
@@ -167,7 +171,7 @@
       @click="next"
       @mouseover="hoverNav = true"
       @mouseleave="hoverNav = false"
-      :class="{ hidden: !hasNext || !showNav }"
+      :class="{ hidden: !showNav, unavailable: !hasNext }"
       :aria-label="$t('buttons.next')"
       :title="$t('buttons.next')"
     >
@@ -377,6 +381,11 @@ const prev = () => {
 const next = () => {
   hoverNav.value = false;
   router.replace({ path: nextLink.value });
+};
+
+const navigateImage = (direction: "next" | "previous") => {
+  if (direction === "next" && hasNext.value) next();
+  if (direction === "previous" && hasPrevious.value) prev();
 };
 
 const key = (event: KeyboardEvent) => {

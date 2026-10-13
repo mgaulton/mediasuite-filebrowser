@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - "master"
+      - "mediasuite"
     tags:
       - "v*"
   pull_request:

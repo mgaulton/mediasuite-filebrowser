@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/filebrowser/filebrowser/v2/diskcache"
@@ -97,6 +98,49 @@ func TestRuleDeniesTraversalToDeniedPath(t *testing.T) {
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("VULNERABLE: GET /allow/../Secret.txt = %d, body=%q; want 403", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRuleDeniesSymlinkAliasToDeniedPath(t *testing.T) {
+	userScope := t.TempDir()
+	allowed := filepath.Join(userScope, "allowed")
+	denied := filepath.Join(userScope, "denied")
+	if err := os.MkdirAll(allowed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(denied, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	victim := filepath.Join(denied, "secret.txt")
+	if err := os.WriteFile(victim, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../denied", filepath.Join(allowed, "alias")); err != nil {
+		t.Skipf("cannot create symlink: %v", err)
+	}
+
+	key := []byte("test-signing-key")
+	perm := users.Permissions{Download: true, Modify: true}
+	st := denyRuleStorage(t, userScope, "/denied/secret.txt", perm, key)
+	signed := signToken(t, perm, key)
+
+	getReq := httptest.NewRequest(http.MethodGet, "/allowed/alias/secret.txt", http.NoBody)
+	getReq.Header.Set("X-Auth", signed)
+	getRec := httptest.NewRecorder()
+	handle(rawHandler, "", st, &settings.Server{}).ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusForbidden {
+		t.Fatalf("GET through denied symlink alias = %d, want 403", getRec.Code)
+	}
+
+	putReq := httptest.NewRequest(http.MethodPut, "/allowed/alias/secret.txt", strings.NewReader("overwrite"))
+	putReq.Header.Set("X-Auth", signed)
+	putRec := httptest.NewRecorder()
+	handle(resourcePutHandler, "", st, &settings.Server{}).ServeHTTP(putRec, putReq)
+	if putRec.Code != http.StatusForbidden {
+		t.Fatalf("PUT through denied symlink alias = %d, want 403", putRec.Code)
+	}
+	if contents, err := os.ReadFile(victim); err != nil || string(contents) != "keep" {
+		t.Fatalf("denied file changed: contents=%q err=%v", contents, err)
 	}
 }
 
