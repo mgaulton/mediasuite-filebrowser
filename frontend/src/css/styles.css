@@ -216,6 +216,40 @@ main .spinner .bounce2 {
   height: 100%;
 }
 
+/* Fit image previews to the viewport and keep them centered on touch devices. */
+#previewer .preview:has(.image-ex-container) {
+  display: grid !important;
+  place-items: center !important;
+  height: 100dvh !important;
+}
+
+#previewer .image-ex-container {
+  width: min(92vw, 1200px) !important;
+  height: min(82dvh, 900px) !important;
+  margin: auto !important;
+}
+
+#previewer .image-ex-container .image-ex-img {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  object-fit: contain !important;
+}
+
+@media (max-width: 700px) {
+  #previewer .preview:has(.image-ex-container) {
+    height: 100dvh !important;
+  }
+
+  #previewer .image-ex-container {
+    width: 94vw !important;
+    height: calc(100dvh - 96px) !important;
+    max-height: 84vh !important;
+  }
+}
+
 #previewer .preview pre {
   text-align: left;
   overflow: auto;
