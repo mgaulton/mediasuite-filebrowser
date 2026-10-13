@@ -1,6 +1,9 @@
 <template>
   <div
     id="previewer"
+    :class="{
+      'previewer--header-visible': isPdf || isEpub || isCsv || showNav,
+    }"
     @touchmove.prevent.stop
     @wheel.prevent.stop
     @mousemove="toggleNavigation"

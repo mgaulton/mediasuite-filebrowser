@@ -2,8 +2,9 @@
 
 This fork is based on `filebrowser/filebrowser` release `v2.63.23`
 (`e8a388f840173580116f2743813d03b22286e44e`). The `mediasuite` branch adds
-mobile image-fit and swipe navigation, keeps adjacent navigation controls
-visible on touch devices, rejects directory overwrite uploads, bounds subtitle
+mobile preview and player controls within the dynamic viewport and device safe
+areas, fits and centers images with swipe navigation, keeps adjacent navigation
+controls visible on touch devices, rejects directory overwrite uploads, bounds subtitle
 conversion and command WebSocket messages, and applies path deny rules to
 resolved symlink targets.
 
