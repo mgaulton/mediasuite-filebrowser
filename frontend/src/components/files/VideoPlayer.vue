@@ -92,6 +92,7 @@ const initVideoPlayer = async () => {
 
 const getOptions = (...srcOpt: any[]) => {
   const options = {
+    responsive: true,
     controlBar: {
       skipButtons: {
         forward: 5,
