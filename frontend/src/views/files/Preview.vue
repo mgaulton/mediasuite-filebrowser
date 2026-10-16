@@ -199,14 +199,25 @@ import { throttle } from "lodash-es";
 import HeaderBar from "@/components/header/HeaderBar.vue";
 import Action from "@/components/header/Action.vue";
 import ExtendedImage from "@/components/files/ExtendedImage.vue";
-import VideoPlayer from "@/components/files/VideoPlayer.vue";
 import CsvViewer from "@/components/files/CsvViewer.vue";
 import { VueReader } from "vue-reader";
-import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  defineAsyncComponent,
+  inject,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { Rendition } from "epubjs";
 import { getTheme } from "@/utils/theme";
 import { useI18n } from "vue-i18n";
+
+const VideoPlayer = defineAsyncComponent(
+  () => import("@/components/files/VideoPlayer.vue"),
+);
 
 // CSV file size limit for preview (5MB)
 // Prevents browser memory issues with large files
