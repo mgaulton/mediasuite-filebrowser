@@ -1,5 +1,5 @@
 <template>
-  <video ref="videoPlayer" class="video-max video-js" controls preload="auto">
+  <video ref="videoPlayer" class="video-max video-js" controls preload="metadata">
     <source />
     <track
       kind="subtitles"
