@@ -11,6 +11,11 @@
       />
 
       <template #actions>
+        <action
+          icon="filter_list"
+          :label="t(mediaOnly ? 'files.showAllFiles' : 'files.mediaOnly')"
+          @action="toggleMediaOnly"
+        />
         <template v-if="!isMobile">
           <action
             v-if="headerButtons.share"
@@ -136,7 +141,7 @@
     <template v-else>
       <div
         v-if="
-          (fileStore.req?.numDirs ?? 0) + (fileStore.req?.numFiles ?? 0) == 0
+          visibleTotalItems === 0
         "
       >
         <h2 class="message">
@@ -235,11 +240,11 @@
           </item>
         </div>
 
-        <h2 data-clear-on-click="true" v-if="fileStore.req?.numFiles ?? false">
+        <h2 data-clear-on-click="true" v-if="visibleFiles.length">
           {{ t("files.files") }}
         </h2>
         <div
-          v-if="fileStore.req?.numFiles ?? false"
+          v-if="visibleFiles.length"
           data-clear-on-click="true"
           @contextmenu="showContextMenu"
         >
@@ -373,6 +378,7 @@ import { storeToRefs } from "pinia";
 import { removePrefix } from "@/api/utils";
 
 const showLimit = ref<number>(50);
+const mediaOnly = ref(localStorage.getItem("filebrowser.mediaOnly") === "true");
 const columnWidth = ref<number>(280);
 const dragCounter = ref<number>(0);
 const width = ref<number>(window.innerWidth);
@@ -415,6 +421,16 @@ const ascOrdered = computed(() =>
 );
 
 const dirs = computed(() => items.value.dirs.slice(0, showLimit.value));
+const visibleFiles = computed(() =>
+  mediaOnly.value
+    ? items.value.files.filter((item) =>
+        ["audio", "image", "video"].includes(item.type)
+      )
+    : items.value.files
+);
+const visibleTotalItems = computed(
+  () => items.value.dirs.length + visibleFiles.value.length
+);
 
 const items = computed(() => {
   const dirs: any[] = [];
@@ -436,8 +452,21 @@ const files = computed((): Resource[] => {
 
   if (_showLimit < 0) _showLimit = 0;
 
-  return items.value.files.slice(0, _showLimit);
+return visibleFiles.value.slice(0, _showLimit);
 });
+
+watch(mediaOnly, (value) => {
+  localStorage.setItem("filebrowser.mediaOnly", String(value));
+  showLimit.value = 50;
+  nextTick(() => {
+    setItemWeight();
+    fillWindow(true);
+  });
+});
+
+const toggleMediaOnly = () => {
+  mediaOnly.value = !mediaOnly.value;
+};
 
 const nameIcon = computed(() => {
   if (nameSorted.value && !ascOrdered.value) {
@@ -746,8 +775,7 @@ const columnsResize = () => {
 };
 
 const scrollEvent = throttle(() => {
-  const totalItems =
-    (fileStore.req?.numDirs ?? 0) + (fileStore.req?.numFiles ?? 0);
+  const totalItems = visibleTotalItems.value;
 
   // All items are displayed
   if (showLimit.value >= totalItems) return;
@@ -1053,7 +1081,8 @@ const setItemWeight = () => {
   // Listing element is not displayed
   if (listing.value === null || fileStore.req === null) return;
 
-  let itemQuantity = fileStore.req.numDirs + fileStore.req.numFiles;
+  let itemQuantity = visibleTotalItems.value;
+  if (itemQuantity === 0) return;
   if (itemQuantity > showLimit.value) itemQuantity = showLimit.value;
 
   // How much every listing item affects the window height
@@ -1063,7 +1092,7 @@ const setItemWeight = () => {
 const fillWindow = (fit = false) => {
   if (fileStore.req === null) return;
 
-  const totalItems = fileStore.req.numDirs + fileStore.req.numFiles;
+const totalItems = visibleTotalItems.value;
 
   // More items are displayed than the total
   if (showLimit.value >= totalItems && !fit) return;
