@@ -217,6 +217,11 @@ export function getDownloadURL(file: ResourceItem, inline: any) {
 }
 
 export function getPreviewURL(file: ResourceItem, size: string) {
+  const authStore = useAuthStore();
+  if (authStore.jwt) {
+    document.cookie = `auth=${authStore.jwt}; Path=/; SameSite=Strict;`;
+  }
+
   const params = {
     inline: "true",
     key: Date.parse(file.modified),
